@@ -7,6 +7,7 @@ COPY store_init/configuration.py ./configuration.py
 COPY store_init/init.py ./init.py
 COPY store_init/requirements.txt ./requirements.txt
 COPY models.py ./models.py
+COPY keys.json ./keys.json
 
 RUN pip install -r ./requirements.txt
 

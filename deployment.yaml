@@ -34,6 +34,7 @@ services:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       timeout: 10s
       retries: 10
+      interval: 20s
     volumes:
       - store_data:/var/lib/mysql
     networks:
@@ -43,6 +44,7 @@ services:
     image: store_init
     environment:
       - DATABASE_URL=store_database
+      - ETHEREUM_URL=ethereum
     depends_on:
       store_database:
         condition: service_healthy
@@ -124,6 +126,11 @@ services:
     environment:
       - ENABLE_INIT_DAEMON=false
       - DATABASE_URL=store_database
+    networks:
+      - store_network
+
+  ethereum:
+    image: trufflesuite/ganache-cli
     networks:
       - store_network
 
