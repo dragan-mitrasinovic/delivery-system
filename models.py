@@ -52,6 +52,6 @@ class Order(database.Model):
     status = database.Column(database.String(256), nullable=False)
     created_on = database.Column(database.DateTime, nullable=False)
     email = database.Column(database.String(256), nullable=False)
-    # contract_address = database.Column(database.String(42), nullable=True)
+    contract_address = database.Column(database.String(42), nullable=True)
 
     products = database.relationship("Product", secondary=ProductInOrder.__table__, back_populates="orders")

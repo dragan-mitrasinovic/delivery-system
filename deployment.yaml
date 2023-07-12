@@ -67,6 +67,7 @@ services:
     image: customer
     environment:
       - DATABASE_URL=store_database
+      - ETHEREUM_URL=ethereum
     depends_on:
       - store_init
     networks:
@@ -78,6 +79,7 @@ services:
     image: courier
     environment:
       - DATABASE_URL=store_database
+      - ETHEREUM_URL=ethereum
     depends_on:
       - store_init
     networks:
@@ -133,6 +135,8 @@ services:
     image: trufflesuite/ganache-cli
     networks:
       - store_network
+    ports:
+      - "8545:8545"
 
 volumes:
   authentication_data:

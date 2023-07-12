@@ -1,8 +1,14 @@
+import math
 from datetime import datetime
 
 from flask import Flask, request, make_response, jsonify, Response
 from flask_jwt_extended import JWTManager, get_jwt_identity
 from sqlalchemy import and_
+from web3 import Web3, HTTPProvider, Account
+
+from configuration import Configuration
+
+web3 = Web3(HTTPProvider(Configuration.ETHEREUM_URI))
 
 from configuration import Configuration
 from models import database, ProductInCategory, Product, Order, ProductInOrder
@@ -14,6 +20,11 @@ application.config.from_object(Configuration)
 jwt = JWTManager(application)
 
 database.init_app(application)
+
+
+def read_file(path):
+    with open(path, "r") as file:
+        return file.read()
 
 
 @application.route("/search", methods=["GET"])
@@ -55,11 +66,9 @@ def order_products():
     if not requests:
         return make_response(jsonify(message="Field requests is missing."), 400)
 
+    total_price = 0
     email = get_jwt_identity()
-    order = Order(total_price=0, status="CREATED", created_on=datetime.now().isoformat(), email=email)
-    database.session.add(order)
-    database.session.flush()
-
+    products_in_order = []
     products = {product.id: product for product in Product.query.all()}
     for i, req in enumerate(requests):
         product_id = req.get("id", None)
@@ -94,47 +103,50 @@ def order_products():
             database.session.rollback()
             return make_response(jsonify(message=f"Invalid product for request number {i}."), 400)
 
-        product_in_order = ProductInOrder(product_id=product_id, order_id=order.id, quantity=quantity)
-        database.session.add(product_in_order)
-        order.total_price += quantity * products[product_id].price
+        products_in_order.append((product_id, quantity))
+
+        total_price += quantity * products[product_id].price
 
         products[product_id].waiting += quantity
         database.session.add(products[product_id])
 
-    # address = request.json.get("address", None)
-    # if not address:
-    #     database.session.rollback()
-    #     return make_response(jsonify(message="Field address is missing."), 400)
-    #
-    # address = web3.to_checksum_address(address)
-    # if not web3.is_address(address):
-    #     return make_response(jsonify(message="Invalid adress."), 400)
-    #
-    # def read_file(path):
-    #     with open(path, "r") as file:
-    #         return file.read()
-    #
-    # keys = json.loads(read_file("../ethereum/keys.json"))
-    #
-    # owner_address = web3.to_checksum_address(keys["address"])
-    # private_key = Account.decrypt(keys, "iepblockchain").hex()
-    # web3.eth.default_account = web3.eth.account.from_key(private_key)
-    #
-    # bytecode = read_file("../ethereum/solidity/order.bin")
-    # abi = read_file("../ethereum/solidity/order.abi")
-    # contract = web3.eth.contract(bytecode=bytecode, abi=abi)
-    #
-    # transaction = contract.constructor(address).build_transaction({
-    #     "from": owner_address,
-    #     "nonce": web3.eth.get_transaction_count(owner_address),
-    #     "gasPrice": 21000
-    # })
-    #
-    # signed_transaction = web3.eth.account.sign_transaction(transaction, private_key)
-    # transaction_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-    # receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
-    #
-    # order.hash = receipt.contractAddress
+    address = request.json.get("address", None)
+    if not address:
+        database.session.rollback()
+        return make_response(jsonify(message="Field address is missing."), 400)
+
+    if not web3.is_address(address):
+        database.session.rollback()
+        return make_response(jsonify(message="Invalid address."), 400)
+
+    order = Order(total_price=total_price, status="CREATED", created_on=datetime.now().isoformat(), email=email)
+    database.session.add(order)
+    database.session.flush()
+    for product_id, quantity in products_in_order:
+        database.session.add(ProductInOrder(product_id=product_id, order_id=order.id, quantity=quantity))
+
+    address = web3.to_checksum_address(address)
+
+    with open("keys.json", "r") as file:
+        private_key = Account.decrypt(file.read(), "iepblockchain").hex()
+
+    owner_account = Account.from_key(private_key)
+
+    bytecode = read_file("solidity/order.bin")
+    abi = read_file("solidity/order.abi")
+    contract = web3.eth.contract(bytecode=bytecode, abi=abi)
+
+    transaction = contract.constructor(address, math.ceil(order.total_price)).build_transaction({
+        "from": owner_account.address,
+        "nonce": web3.eth.get_transaction_count(owner_account.address),
+        "gasPrice": 21000
+    })
+
+    signed_transaction = web3.eth.account.sign_transaction(transaction, private_key)
+    transaction_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+    receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
+
+    order.contract_address = receipt.contractAddress
 
     database.session.commit()
     return make_response(jsonify(id=order.id), 200)
@@ -188,33 +200,46 @@ def delivered():
         product.sold += quantities[product.id]
     database.session.add_all(order.products)
 
-    # keys = request.json.get("keys", None)
-    # if not keys:
-    #     database.session.rollback()
-    #     return make_response(jsonify(message="Missing keys."), 400)
-    #
-    # passphrase = request.json.get("passphrase", "")
-    # if len(passphrase) == 0:
-    #     database.session.rollback()
-    #     return make_response(jsonify(message="Missing passphrase."), 400)
-    #
-    # try:
-    #     account_data = Account.decrypt(keys, passphrase).decode()
-    #     account_data = json.loads(account_data)
-    # except ValueError:
-    #     database.session.rollback()
-    #     return make_response(jsonify(message="Invalid credentials."), 400)
-    #
-    # private_key = account_data["private_key"]
-    # address = account_data["address"]
+    keys = request.json.get("keys", None)
+    if not keys:
+        database.session.rollback()
+        return make_response(jsonify(message="Missing keys."), 400)
 
-    # get the contract somehow?
+    passphrase = request.json.get("passphrase", "")
+    if len(passphrase) == 0:
+        database.session.rollback()
+        return make_response(jsonify(message="Missing passphrase."), 400)
 
-    # check if customer address is the one from the contract
+    try:
+        keys = keys.replace("'", '"')
+        private_key = Account.decrypt(keys, passphrase)
+    except ValueError:
+        database.session.rollback()
+        return make_response(jsonify(message="Invalid credentials."), 400)
 
-    # check if customer transferred the amount specified
+    address = web3.eth.account.from_key(private_key).address
 
-    # check if a courier was added to the contract
+    abi = read_file("solidity/order.abi")
+    contract = web3.eth.contract(address=order.contract_address, abi=abi)
+
+    if contract.functions.customer().call() != address:
+        database.session.rollback()
+        return make_response(jsonify(message="Invalid customer account."), 400)
+
+    try:
+        transaction = contract.functions.distributeFunds().build_transaction({
+            "from": address,
+            "nonce": web3.eth.get_transaction_count(address),
+            "gasPrice": 21000
+        })
+
+        signed_transaction = web3.eth.account.sign_transaction(transaction, private_key)
+        transaction_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+        receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
+
+    except ValueError as e:
+        database.session.rollback()
+        return make_response(jsonify(message=e), 400)
 
     database.session.commit()
     return Response(status=200)
@@ -223,8 +248,62 @@ def delivered():
 @application.route("/pay", methods=["POST"])
 @role_check("customer")
 def pay():
-    pass
-    # pay endpoint
+    order_id = request.json.get("id", None)
+    if not order_id:
+        return make_response(jsonify(message="Missing order id."), 400)
+
+    try:
+        order_id = int(order_id)
+        if order_id <= 0:
+            return make_response(jsonify(message="Invalid order id."), 400)
+    except ValueError:
+        return make_response(jsonify(message="Invalid order id."), 400)
+
+    order = Order.query.filter(Order.id == order_id).first()
+    if not order:
+        return make_response(jsonify(message="Invalid order id."), 400)
+
+    keys = request.json.get("keys", None)
+    if not keys:
+        database.session.rollback()
+        return make_response(jsonify(message="Missing keys."), 400)
+
+    passphrase = request.json.get("passphrase", "")
+    if len(passphrase) == 0:
+        database.session.rollback()
+        return make_response(jsonify(message="Missing passphrase."), 400)
+
+    try:
+        private_key = Account.decrypt(keys, passphrase)
+    except ValueError:
+        database.session.rollback()
+        return make_response(jsonify(message="Invalid credentials."), 400)
+
+    address = web3.eth.account.from_key(private_key).address
+
+    abi = read_file("solidity/order.abi")
+    contract = web3.eth.contract(address=order.contract_address, abi=abi)
+
+    if contract.functions.paid().call():
+        database.session.rollback()
+        return make_response(jsonify(message="Transfer already complete."), 400)
+
+    try:
+        transaction = contract.functions.payOrder().build_transaction({
+            "from": address,
+            "nonce": web3.eth.get_transaction_count(address),
+            "gasPrice": 21000,
+            "value": int(order.total_price)
+        })
+
+        signed_transaction = web3.eth.account.sign_transaction(transaction, private_key)
+        transaction_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+        receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
+    except ValueError as e:
+        database.session.rollback()
+        return make_response(jsonify(message=e), 400)
+
+    return Response(status=200)
 
 
 if __name__ == "__main__":

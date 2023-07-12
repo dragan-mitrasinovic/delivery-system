@@ -16,16 +16,15 @@ with application.app_context():
     database.create_all()
     database.session.commit()
 
-private_key = ""
 with open("keys.json", "r") as file:
     private_key = Account.decrypt(file.read(), "iepblockchain").hex()
 
-customer_account = Account.from_key(private_key)
+owner_account = Account.from_key(private_key)
 
 web3 = Web3(HTTPProvider(Configuration.ETHEREUM_URI))
 
-result = web3.eth.send_transaction({
+web3.eth.send_transaction({
     "from": web3.eth.accounts[0],
-    "to": customer_account.address,
+    "to": owner_account.address,
     "value": web3.to_wei(5, "ether")
 })

@@ -4,3 +4,4 @@ flask_jwt_extended==4.5.2
 sqlalchemy==2.0.15
 PyMySQL==1.0.3
 requests==2.31.0
+cryptography==41.0.1
