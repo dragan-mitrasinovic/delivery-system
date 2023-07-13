@@ -293,7 +293,7 @@ def pay():
             "from": address,
             "nonce": web3.eth.get_transaction_count(address),
             "gasPrice": 21000,
-            "value": int(order.total_price)
+            "value": math.ceil(order.total_price)
         })
 
         signed_transaction = web3.eth.account.sign_transaction(transaction, private_key)

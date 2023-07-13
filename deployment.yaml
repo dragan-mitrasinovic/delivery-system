@@ -110,21 +110,21 @@ services:
     networks:
       - store_network
 
-  spark-worker-2:
-    image: bde2020/spark-worker:3.3.0-hadoop3.3
-    container_name: spark-worker-2
-    depends_on:
-      - spark-master
-    ports:
-      - "8082:8081"
-    environment:
-      - "SPARK_MASTER=spark://spark-master:7077"
-    networks:
-      - store_network
+#  spark-worker-2:
+#    image: bde2020/spark-worker:3.3.0-hadoop3.3
+#    container_name: spark-worker-2
+#    depends_on:
+#      - spark-master
+#    ports:
+#      - "8082:8081"
+#    environment:
+#      - "SPARK_MASTER=spark://spark-master:7077"
+#    networks:
+#      - store_network
 
   statistics:
     image: statistics
-    depends_on: [ spark-master, spark-worker-1, spark-worker-2 ]
+    depends_on: [ spark-master, spark-worker-1 ] #spark-worker-2
     environment:
       - ENABLE_INIT_DAEMON=false
       - DATABASE_URL=store_database
